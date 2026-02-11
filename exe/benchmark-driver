@@ -11,6 +11,7 @@ config = BenchmarkDriver::Config.new.tap do |c|
   executables = []
   bundler = false
   timeout = false
+  argv_from_files = []
 
   parser = OptionParser.new do |o|
     o.version = BenchmarkDriver::VERSION
@@ -90,9 +91,13 @@ config = BenchmarkDriver::Config.new.tap do |c|
     o.on('-v', '--verbose', 'Verbose mode. Multiple -v options increase visilibity (max: 2)') do |v|
       c.verbose += 1
     end
+    o.on('-c', '--config FILE', 'Read the file contents as additional command-line') do |v|
+      argv_from_files += File.read(v).shellsplit
+    end
   end
   begin
     c.args = parser.parse!(ARGV)
+    c.args += parser.parse!(argv_from_files)
   rescue OptionParser::InvalidArgument => e
     abort e.message
   end
