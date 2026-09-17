@@ -164,6 +164,7 @@ class BenchmarkDriver::Output::Markdown
   end
 
   def compare_sxs_executables
+    order = @metrics.first.larger_better ? :min_by : :max_by
     job_context_result = @job_context_result.to_a
     target = job_context_result.last[1].values.first[1]
     job_context_result[0..-2].each do |context, result|
@@ -172,7 +173,13 @@ class BenchmarkDriver::Output::Markdown
       comparable = ratio && ratio.finite? && ratio > 0
       text = comparable ? sprintf("%.2fx", ratio) : 'N/A'
       length = [context.name.length, NAME_LENGTH].max + 3
-      $stdout.printf("|%*s", length, text)
+      str = "%*s" % [length, text]
+      if comparable && !ENV.has_key?("NO_COLOR") && $stdout.tty?
+        bars = (Math.log2(ratio < 1 ? 1.0/ratio : ratio)*16).floor
+        color = (order == :min_by ? ratio > 1 : ratio < 1) ? "\e[42m" : "\e[41m"
+        str = color + "#{str[0, bars]}" + "\e[49m" + ((str.length > bars) ? str[bars..-1] : "")
+      end
+      $stdout.printf("|%s", str)
     end
     $stdout.puts('|')
   end
