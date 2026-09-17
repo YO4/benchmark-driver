@@ -8,7 +8,7 @@ require 'shellwords'
 # Max resident set size
 class BenchmarkDriver::Runner::Memory
   METRIC = BenchmarkDriver::Metric.new(
-    name: Etc.uname.fetch(:sysname) == 'Windows_NT' ? 'Peak working set size' : 'Max resident set size',
+    name: Etc.uname.fetch(:sysname) == 'Windows_NT' ? 'Max private memory size' : 'Max resident set size',
     unit: 'bytes', larger_better: false, worse_word: 'larger',
   )
 
@@ -55,12 +55,12 @@ class BenchmarkDriver::Runner::Memory
 $psi = [System.Diagnostics.ProcessStartInfo]::new('#{exe.gsub("'", "''")}', '#{args}');
 $psi.UseShellExecute = $false;
 $p = [System.Diagnostics.Process]::Start($psi);
-$peak = $p.PeakWorkingSet64;
+$peak = $p.PrivateMemorySize64;
 while(-not $p.WaitForExit(0)) {
   $p.Refresh();
   try {
-    if($p.PeakWorkingSet64 -gt $peak){
-      $peak = $p.PeakWorkingSet64
+    if($p.PrivateMemorySize64 -gt $peak){
+      $peak = $p.PrivateMemorySize64
     }
   } catch {};
 };
