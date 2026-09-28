@@ -8,9 +8,40 @@ require 'shellwords'
 # Max resident set size
 class BenchmarkDriver::Runner::Memory
   METRIC = BenchmarkDriver::Metric.new(
-    name: Etc.uname.fetch(:sysname) == 'Windows_NT' ? 'Max private memory size' : 'Max resident set size',
+    name: Etc.uname.fetch(:sysname) == 'Windows_NT' ? 'Peak commit charge size' : 'Max resident set size',
     unit: 'bytes', larger_better: false, worse_word: 'larger',
   )
+
+  # Powershell definition to retrieve Windows memory usage
+  WINDOWS_PeakPagefileUsage_DEFINITION = <<-POWERSHELL
+    using System;
+    using System.Runtime.InteropServices;
+    public static class PMem {
+      [StructLayout(LayoutKind.Sequential)]
+      public struct PROCESS_MEMORY_COUNTERS {
+        public uint cb;
+        public uint PageFaultCount;
+        public UIntPtr PeakWorkingSetSize;
+        public UIntPtr WorkingSetSize;
+        public UIntPtr QuotaPeakPagedPoolUsage;
+        public UIntPtr QuotaPagedPoolUsage;
+        public UIntPtr QuotaPeakNonPagedPoolUsage;
+        public UIntPtr QuotaNonPagedPoolUsage;
+        public UIntPtr PagefileUsage;
+        public UIntPtr PeakPagefileUsage;
+      }
+      [DllImport("psapi.dll", SetLastError = true)]
+      private static extern bool GetProcessMemoryInfo(IntPtr hProcess, out PROCESS_MEMORY_COUNTERS pmi, uint cb);
+      public static long PeakPagefileUsage(IntPtr hProcess) {
+        PROCESS_MEMORY_COUNTERS pmc;
+        uint cb = (uint)Marshal.SizeOf(typeof(PROCESS_MEMORY_COUNTERS));
+        if(GetProcessMemoryInfo(hProcess, out pmc, cb)) {
+          return (long)pmc.PeakPagefileUsage.ToUInt64();
+        }
+        return -1;
+      }
+    }
+  POWERSHELL
 
   # JobParser returns this, `BenchmarkDriver::Runner.runner_for` searches "*::Job"
   Job = Class.new(BenchmarkDriver::DefaultJob)
@@ -52,20 +83,22 @@ class BenchmarkDriver::Runner::Memory
           "powershell",
           "-Command",
           <<-POWERSHELL.each_line.map { |l| l.strip}.join(" ")
-$psi = [System.Diagnostics.ProcessStartInfo]::new('#{exe.gsub("'", "''")}', '#{args}');
-$psi.UseShellExecute = $false;
-$p = [System.Diagnostics.Process]::Start($psi);
-$peak = $p.PrivateMemorySize64;
-while(-not $p.WaitForExit(0)) {
-  $p.Refresh();
-  try {
-    if($p.PrivateMemorySize64 -gt $peak){
-      $peak = $p.PrivateMemorySize64
-    }
-  } catch {};
-};
-Write-Host $peak;
-exit $p.ExitCode;
+            $src = '#{WINDOWS_PeakPagefileUsage_DEFINITION}';
+            Add-Type -TypeDefinition $src;
+            $psi = [System.Diagnostics.ProcessStartInfo]::new('#{exe.gsub("'", "''")}', '#{args}');
+            $psi.UseShellExecute = $false;
+            $p = [System.Diagnostics.Process]::Start($psi);
+            $h = $p.Handle;
+            $peak = 0;
+            $p.WaitForExit();
+            try {
+              $v = [PMem]::PeakPagefileUsage($h);
+              if($v -gt $peak){
+                $peak = $v
+              }
+            } catch {};
+            Write-Host $peak;
+            exit $p.ExitCode;
           POWERSHELL
         ]
       end
@@ -160,7 +193,6 @@ exit $p.ExitCode;
 #{prelude}
 #{while_loop(script, loop_count)}
 #{teardown}
-#{sleep 0.1 if Etc.uname.fetch(:sysname) == "Windows_NT"}
       RUBY
     end
 
